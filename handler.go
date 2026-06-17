@@ -21,7 +21,7 @@ type Handler func(c *Context) error
 
 // Predicate reports whether a Handler should run for an update. A Handler runs
 // only if all of its predicates return true.
-type Predicate func(u *Update) bool
+type Predicate func(c *Context) bool
 
 // Middleware wraps a Handler, returning a new one. Middleware registered with
 // Bot.Use runs for every handled update, outermost first.
@@ -33,9 +33,9 @@ type route struct {
 	mws        []Middleware
 }
 
-func (r route) matches(u *Update) bool {
+func (r route) matches(c *Context) bool {
 	for _, p := range r.predicates {
-		if !p(u) {
+		if !p(c) {
 			return false
 		}
 	}
@@ -89,7 +89,8 @@ func (b *Bot) route(ctx context.Context, u *Update) {
 	b.router.mu.RUnlock()
 
 	for _, r := range routes {
-		if !r.matches(u) {
+		c := &Context{Context: ctx, Bot: b, Update: u}
+		if !r.matches(c) {
 			continue
 		}
 
@@ -102,7 +103,6 @@ func (b *Bot) route(ctx context.Context, u *Update) {
 			h = mws[i](h)
 		}
 
-		c := &Context{Context: ctx, Bot: b, Update: u}
 		if err := h(c); err != nil {
 			b.logger().Error(ctx, "Handler error", log.Error(err))
 		}
