@@ -49,6 +49,7 @@ type router struct {
 	mu     sync.RWMutex
 	routes []route
 	mws    []Middleware
+	preMws []Middleware
 }
 
 // Use registers global middleware applied to every handled update. Middleware
@@ -58,6 +59,16 @@ func (b *Bot) Use(mws ...Middleware) {
 	defer b.router.mu.Unlock()
 
 	b.router.mws = append(b.router.mws, mws...)
+}
+
+// UseOuter registers global middleware applied to every update BEFORE route matching.
+// This is the outermost layer of the pipeline, useful for logging, recovery, and tracing.
+// Middleware runs outermost-first in registration order. Call before Run.
+func (b *Bot) UseOuter(mws ...Middleware) {
+	b.router.mu.Lock()
+	defer b.router.mu.Unlock()
+
+	b.router.preMws = append(b.router.preMws, mws...)
 }
 
 // on registers a handler guarded by the given predicates.
@@ -81,32 +92,38 @@ func (b *Bot) route(ctx context.Context, u *Update) {
 	if b.self != nil {
 		u.botUsername = b.self.Username
 	}
+	c := &Context{Context: ctx, Bot: b, Update: u}
 
 	b.router.mu.RLock()
-
+	preMws := b.router.preMws
 	routes := b.router.routes
 	mws := b.router.mws
 	b.router.mu.RUnlock()
 
-	for _, r := range routes {
-		c := &Context{Context: ctx, Bot: b, Update: u}
-		if !r.matches(c) {
-			continue
-		}
+	var routingHandler Handler = func(c *Context) error {
+		for _, r := range routes {
+			if !r.matches(c) {
+				continue
+			}
 
-		h := r.handler
-		for i := len(r.mws) - 1; i >= 0; i-- {
-			h = r.mws[i](h)
-		}
+			h := r.handler
+			for i := len(r.mws) - 1; i >= 0; i-- {
+				h = r.mws[i](h)
+			}
 
-		for i := len(mws) - 1; i >= 0; i-- {
-			h = mws[i](h)
-		}
+			for i := len(mws) - 1; i >= 0; i-- {
+				h = mws[i](h)
+			}
 
-		if err := h(c); err != nil {
-			b.logger().Error(ctx, "Handler error", log.Error(err))
+			return h(c)
 		}
+		return nil
+	}
+	for i := len(preMws) - 1; i >= 0; i-- {
+		routingHandler = preMws[i](routingHandler)
+	}
 
-		return
+	if err := routingHandler(c); err != nil {
+		b.logger().Error(c.Context, "Pipeline error", log.Error(err))
 	}
 }
