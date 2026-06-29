@@ -32,6 +32,16 @@ func (b *Bot) installHandlers() {
 		return nil
 	})
 	b.disp.OnBotCallbackQuery(func(ctx context.Context, e tg.Entities, u *tg.UpdateBotCallbackQuery) error {
+		cq := callbackQueryFromTg(e, u)
+
+		chat, err := b.chatByPeer(ctx, u.Peer)
+		if err == nil {
+			cq.Message = &Message{
+				MessageID: u.MsgID,
+				Chat:      chat,
+			}
+		}
+
 		b.route(ctx, &Update{CallbackQuery: callbackQueryFromTg(e, u)})
 
 		return nil
