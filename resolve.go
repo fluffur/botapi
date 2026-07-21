@@ -2,6 +2,7 @@ package botapi
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/gotd/td/constant"
@@ -64,9 +65,32 @@ func (b *Bot) resolveInputPeer(ctx context.Context, chat ChatID) (tg.InputPeerCl
 // MTProto user-targeting methods need, pulling the access hash from storage.
 func (b *Bot) resolveInputUser(ctx context.Context, userID int64) (tg.InputUserClass, error) {
 	u, err := b.peers.ResolveUserID(ctx, userID)
+	if err == nil {
+		input := u.InputUser()
+
+		if user, ok := input.(*tg.InputUser); ok && user.AccessHash != 0 {
+			return user, nil
+		}
+		return u.InputUser(), nil
+	}
+
+	users, err := b.raw.UsersGetUsers(ctx, []tg.InputUserClass{
+		&tg.InputUser{
+			UserID: userID,
+		},
+	})
 	if err != nil {
 		return nil, asAPIError(err)
 	}
 
-	return u.InputUser(), nil
+	user, ok := tg.UserClassArray(users).FirstAsNotEmpty()
+	if !ok {
+		return nil, fmt.Errorf("user not found: %d", userID)
+	}
+
+	if err := b.peers.Apply(ctx, users, nil); err != nil {
+		return nil, fmt.Errorf("apply user peer: %w", err)
+	}
+
+	return user.AsInput(), nil
 }
