@@ -71,7 +71,6 @@ func (b *Bot) resolveInputUser(ctx context.Context, userID int64) (tg.InputUserC
 		if user, ok := input.(*tg.InputUser); ok && user.AccessHash != 0 {
 			return user, nil
 		}
-		return u.InputUser(), nil
 	}
 
 	users, err := b.raw.UsersGetUsers(ctx, []tg.InputUserClass{
